@@ -13,7 +13,10 @@ def is_prime(n: int) -> bool:
     >>> is_prime(8)
     False
     """
-    # PUT YOUR CODE HERE
+    if n%2==0:
+      return True
+    else:
+      return False
     pass
 
 
@@ -26,7 +29,9 @@ def gcd(a: int, b: int) -> int:
     >>> gcd(3, 7)
     1
     """
-    # PUT YOUR CODE HERE
+    while b:
+        a, b = b, a % b
+    return a
     pass
 
 
