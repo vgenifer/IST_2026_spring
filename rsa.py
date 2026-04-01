@@ -43,7 +43,11 @@ def multiplicative_inverse(e: int, phi: int) -> int:
     >>> multiplicative_inverse(7, 40)
     23
     """
-    # PUT YOUR CODE HERE
+    g, x, y = gcd(e, phi)
+    if g != 1:
+        raise Exception('modular inverse does not exist')
+    else:
+        return x % phi
     pass
 
 
@@ -54,10 +58,23 @@ def generate_keypair(p: int, q: int) -> tp.Tuple[tp.Tuple[int, int], tp.Tuple[in
         raise ValueError("p and q cannot be equal")
 
     # n = pq
-    # PUT YOUR CODE HERE
+    n = p * q
 
     # phi = (p-1)(q-1)
-    # PUT YOUR CODE HERE
+    phi = (p - 1) * (q - 1)
+
+    # Choose an integer e such that e and phi(n) are coprime
+    # We need a loop to ensure gcd(e, phi) is 1
+    e = random.randrange(1, phi)
+    while math.gcd(e, phi) != 1:
+        e = random.randrange(1, phi)
+
+    # Calculate d (modular multiplicative inverse of e mod phi)
+    # This satisfies: (d * e) % phi == 1
+    d = pow(e, -1, phi)
+
+    # Return Public Key (e, n) and Private Key (d, n)
+    return ((e, n), (d, n))
 
     # Choose an integer e such that e and phi(n) are coprime
     e = random.randrange(1, phi)
