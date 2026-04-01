@@ -13,10 +13,20 @@ def is_prime(n: int) -> bool:
     >>> is_prime(8)
     False
     """
-    if n%2==0:
-      return True
-    else:
-      return False
+    if n <= 1:
+        return False
+    if n == 2:
+        return True
+    if n % 2 == 0:
+        return False
+    
+    # Check odd factors up to sqrt(n)
+    i = 3
+    while i * i <= n:
+        if n % i == 0:
+            return False
+        i += 2
+    return True
     pass
 
 
