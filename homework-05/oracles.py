@@ -120,49 +120,77 @@ class LogRegL2OptimizedOracle(LogRegL2Oracle):
     """
     def __init__(self, matvec_Ax, matvec_ATx, matmat_ATsA, b, regcoef):
         super().__init__(matvec_Ax, matvec_ATx, matmat_ATsA, b, regcoef)
+        self._cache_x = None
+        self._cache_Ax = None
+        self._cache_d = None
+        self._cache_Ad = None
+
+    def _get_Ax(self, x):
+        # Check if x = cached_x + alpha * cached_d for some alpha
+        if self._cache_x is not None and self._cache_Ad is not None:
+            diff = x - self._cache_x
+            # Check if diff is a scalar multiple of cached_d
+            nrm = np.linalg.norm(self._cache_d)
+            if nrm > 0:
+                alpha = np.dot(diff, self._cache_d) / (nrm ** 2)
+                if np.allclose(diff, alpha * self._cache_d):
+                    return self._cache_Ax + alpha * self._cache_Ad
+
+        if self._cache_x is None or not np.array_equal(self._cache_x, x):
+            self._cache_x = x.copy()
+            self._cache_Ax = self.matvec_Ax(x)
+            self._cache_d = None
+            self._cache_Ad = None
+        return self._cache_Ax
+
+    def _get_Ad(self, x, d):
+        self._get_Ax(x)
+        if self._cache_d is None or not np.array_equal(self._cache_d, d):
+            self._cache_d = d.copy()
+            self._cache_Ad = self.matvec_Ax(d)
+        return self._cache_Ad
+
+    def func(self, x):
+        Ax = self._get_Ax(x)
+        z = self.b * Ax
+        loss = np.mean(np.log(1 + np.exp(-z)))
+        reg = (self.regcoef * np.sum(x**2)) / 2
+        return loss + reg
+
+    def grad(self, x):
+        Ax = self._get_Ax(x)
+        z = self.b * Ax
+        s = expit(z) - 1
+        ATsb = self.matvec_ATx(s * self.b)
+        m = len(self.b)
+        return (1 / m) * ATsb + self.regcoef * x
+
+    def hess(self, x):
+        Ax = self._get_Ax(x)
+        z = self.b * Ax
+        s_new = expit(z) * (1 - expit(z))
+        matrix_part = self.matmat_ATsA(s_new)
+        m = len(self.b)
+        return (1 / m) * matrix_part + self.regcoef * np.eye(len(x))
 
     def func_directional(self, x, d, alpha):
-       
-        if not hasattr(self, '_cached_x') or not np.array_equal(self._cached_x, x):
-            self._cached_x = x.copy()
-            self._cached_Ax = self.matvec_Ax(x)
-            
-        
-        if not hasattr(self, '_cached_d') or not np.array_equal(self._cached_d, d):
-            self._cached_d = d.copy()
-            self._cached_Ad = self.matvec_Ax(d)
-
-        Ax_new = self._cached_Ax + alpha * self._cached_Ad
+        Ax = self._get_Ax(x)
+        Ad = self._get_Ad(x, d)
+        Ax_new = Ax + alpha * Ad
         x_new = x + alpha * d
-        
-        
         z = self.b * Ax_new
         loss = np.mean(np.log(1 + np.exp(-z)))
         reg = (self.regcoef * np.sum(x_new**2)) / 2
-        
-        
         return np.squeeze(loss + reg)
-        
 
     def grad_directional(self, x, d, alpha):
-        if not hasattr(self, '_cached_x') or not np.array_equal(self._cached_x, x):
-            self._cached_x = x.copy()
-            self._cached_Ax = self.matvec_Ax(x)
-            
-        
-        if not hasattr(self, '_cached_d') or not np.array_equal(self._cached_d, d):
-            self._cached_d = d.copy()
-            self._cached_Ad = self.matvec_Ax(d)
-
-        
-        Ax_new = self._cached_Ax + alpha * self._cached_Ad
+        Ax = self._get_Ax(x)
+        Ad = self._get_Ad(x, d)
+        Ax_new = Ax + alpha * Ad
         x_new = x + alpha * d
-
-        z = self.b * Ax_new 
+        z = self.b * Ax_new
         s = expit(z) - 1
-
-        return np.squeeze(np.dot(s * self.b, self._cached_Ad) / len(self.b) + self.regcoef * np.dot(x_new, d))
-        
+        return np.squeeze(np.dot(s * self.b, Ad) / len(self.b) + self.regcoef * np.dot(x_new, d))
 
 
 def create_log_reg_oracle(A, b, regcoef, oracle_type='usual'):
@@ -174,6 +202,8 @@ def create_log_reg_oracle(A, b, regcoef, oracle_type='usual'):
     matvec_ATx = lambda x: (A.T).dot(x)
 
     def matmat_ATsA(s):
+        if scipy.sparse.issparse(A):
+            return (A.T).dot(A.multiply(s[:, np.newaxis]))
         return (A.T).dot(np.diag(s).dot(A))
 
     if oracle_type == 'usual':
@@ -219,9 +249,9 @@ def hess_finite_diff(func, x, eps=1e-5):
         e_i = (0, 0, ..., 0, 1, 0, ..., 0)
                           >> i <<
     """
+    n = len(x)
     H = np.zeros((n, n))
     f_x = func(x)
-    n = len(x)
     for i in range(n):
       for j in range(n):
         x_i = x.copy()
