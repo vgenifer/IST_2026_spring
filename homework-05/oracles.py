@@ -86,16 +86,29 @@ class LogRegL2Oracle(BaseSmoothOracle):
         self.regcoef = regcoef
 
     def func(self, x):
-        # TODO: Implement
-        return None
+        Ax = self.matvec_Ax(x)
+        z = self.b * Ax
+        loss = np.mean(np.log(1 + np.exp(-z)))
+        reg = (self.regcoef * np.sum(x**2)) / 2
+        return loss + reg
+        
 
     def grad(self, x):
-        # TODO: Implement
-        return None
+        Ax = self.matvec_Ax(x)
+        z = self.b * Ax
+        s = expit(z) - 1
+        sb = s * self.b
+        ATsb = self.matvec_ATx(sb)
+        m = len(self.b)
+        return (1 / m) * ATsb + self.regcoef * x
 
     def hess(self, x):
-        # TODO: Implement
-        return None
+        Ax = self.matvec_Ax(x)
+        z = self.b * Ax
+        s_new = expit(z) * (1 - expit(z))
+        matrix_part = self.matmat_ATsA(s_new)
+        m = len(self.b)
+        return (1 / m) * matrix_part + self.regcoef * np.eye(len(x))
 
 
 class LogRegL2OptimizedOracle(LogRegL2Oracle):
@@ -109,12 +122,47 @@ class LogRegL2OptimizedOracle(LogRegL2Oracle):
         super().__init__(matvec_Ax, matvec_ATx, matmat_ATsA, b, regcoef)
 
     def func_directional(self, x, d, alpha):
-        # TODO: Implement optimized version with pre-computation of Ax and Ad
-        return None
+       
+        if not hasattr(self, '_cached_x') or not np.array_equal(self._cached_x, x):
+            self._cached_x = x.copy()
+            self._cached_Ax = self.matvec_Ax(x)
+            
+        
+        if not hasattr(self, '_cached_d') or not np.array_equal(self._cached_d, d):
+            self._cached_d = d.copy()
+            self._cached_Ad = self.matvec_Ax(d)
+
+        Ax_new = self._cached_Ax + alpha * self._cached_Ad
+        x_new = x + alpha * d
+        
+        
+        z = self.b * Ax_new
+        loss = np.mean(np.log(1 + np.exp(-z)))
+        reg = (self.regcoef * np.sum(x_new**2)) / 2
+        
+        
+        return np.squeeze(loss + reg)
+        
 
     def grad_directional(self, x, d, alpha):
-        # TODO: Implement optimized version with pre-computation of Ax and Ad
-        return None
+        if not hasattr(self, '_cached_x') or not np.array_equal(self._cached_x, x):
+            self._cached_x = x.copy()
+            self._cached_Ax = self.matvec_Ax(x)
+            
+        
+        if not hasattr(self, '_cached_d') or not np.array_equal(self._cached_d, d):
+            self._cached_d = d.copy()
+            self._cached_Ad = self.matvec_Ax(d)
+
+        
+        Ax_new = self._cached_Ax + alpha * self._cached_Ad
+        x_new = x + alpha * d
+
+        z = self.b * Ax_new 
+        s = expit(z) - 1
+
+        return np.squeeze(np.dot(s * self.b, self._cached_Ad) / len(self.b) + self.regcoef * np.dot(x_new, d))
+        
 
 
 def create_log_reg_oracle(A, b, regcoef, oracle_type='usual'):
@@ -122,12 +170,11 @@ def create_log_reg_oracle(A, b, regcoef, oracle_type='usual'):
     Auxiliary function for creating logistic regression oracles.
         `oracle_type` must be either 'usual' or 'optimized'
     """
-    matvec_Ax = lambda x: x  # TODO: Implement
-    matvec_ATx = lambda x: x  # TODO: Implement
+    matvec_Ax = lambda x: A.dot(x)
+    matvec_ATx = lambda x: (A.T).dot(x)
 
     def matmat_ATsA(s):
-        # TODO: Implement
-        return None
+        return (A.T).dot(np.diag(s).dot(A))
 
     if oracle_type == 'usual':
         oracle = LogRegL2Oracle
@@ -147,8 +194,18 @@ def grad_finite_diff(func, x, eps=1e-8):
         e_i = (0, 0, ..., 0, 1, 0, ..., 0)
                           >> i <<
     """
-    # TODO: Implement numerical estimation of the gradient
-    return None
+    g = np.zeros_like(x)          
+    f_x = func(x)                 
+    
+    for i in range(len(x)):       
+        x_perturbed = x.copy()    
+        x_perturbed[i] += eps     
+        
+        f_perturbed = func(x_perturbed) 
+        g[i] = (f_perturbed - f_x) / eps
+        
+    return g
+    
 
 
 def hess_finite_diff(func, x, eps=1e-5):
@@ -162,5 +219,21 @@ def hess_finite_diff(func, x, eps=1e-5):
         e_i = (0, 0, ..., 0, 1, 0, ..., 0)
                           >> i <<
     """
-    # TODO: Implement numerical estimation of the Hessian
-    return None
+    H = np.zeros((n, n))
+    f_x = func(x)
+    n = len(x)
+    for i in range(n):
+      for j in range(n):
+        x_i = x.copy()
+        x_i[i]+= eps
+        x_j = x.copy()
+        x_j[j]+= eps
+        x_ij = x.copy()
+        x_ij[i] +=eps
+        x_ij[j] +=eps
+        f_i = func(x_i)
+        f_j = func(x_j)
+        f_ij = func(x_ij)
+        H[i, j] = (f_ij - f_i - f_j + f_x) / (eps**2)
+
+    return H
